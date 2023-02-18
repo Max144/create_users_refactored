@@ -9,7 +9,7 @@ import (
 )
 
 var actions = []string{"logged in", "logged out", "created record", "deleted record", "updated account"}
-var workersCount = 100
+var workersCount = 1000
 
 type logItem struct {
 	action    string
@@ -35,19 +35,19 @@ func main() {
 	rand.Seed(time.Now().Unix())
 	startTime := time.Now()
 
-	users := generateUsers(100)
+	users := generateUsers(1000)
 
 	saveUsersInfo(users)
 
 	fmt.Printf("DONE! Time Elapsed: %.2f seconds\n", time.Since(startTime).Seconds())
 }
 
-func generateUsersWorker(inputChan <-chan bool, outputChan chan<- User, index int) {
-	for _ = range inputChan {
+func generateUsersWorker(usersIdChan <-chan int, outputChan chan<- User) {
+	for id := range usersIdChan {
 		time.Sleep(time.Millisecond * 100)
 		outputChan <- User{
-			id:    index,
-			email: fmt.Sprintf("user%d@company.com", index+1),
+			id:    id,
+			email: fmt.Sprintf("user%d@company.com", id),
 			logs:  generateLogs(rand.Intn(1000)),
 		}
 	}
@@ -63,7 +63,7 @@ func saveUsersInfo(users []User) {
 		go saveUserInfo(inputChan, outputChan)
 	}
 
-	for i := 0; i < workersCount; i++ {
+	for i := 0; i < len(users); i++ {
 		user := <-outputChan
 		fmt.Printf("WRITING FILE FOR UID %d\n", user.id)
 	}
@@ -86,14 +86,14 @@ func saveUserInfo(inputChan <-chan User, outputChan chan<- User) {
 
 func generateUsers(count int) []User {
 	users := make([]User, count)
-	inputChan, outputChan := make(chan bool, count), make(chan User, count)
+	usersIdChan, outputChan := make(chan int, count), make(chan User, count)
 	for i := 0; i < count; i++ {
-		inputChan <- true
+		usersIdChan <- i + 1
 	}
 	for i := 0; i < workersCount; i++ {
-		go generateUsersWorker(inputChan, outputChan, i+1)
+		go generateUsersWorker(usersIdChan, outputChan)
 	}
-	close(inputChan)
+	close(usersIdChan)
 	for i := 0; i < count; i++ {
 		users[i] = <-outputChan
 		fmt.Printf("generated user %d\n", users[i].id)
