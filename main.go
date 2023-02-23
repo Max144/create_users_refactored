@@ -10,7 +10,7 @@ import (
 )
 
 var actions = []string{"logged in", "logged out", "created record", "deleted record", "updated account"}
-var workersCount = 1000
+var workersCount = 100
 
 type logItem struct {
 	action    string
@@ -50,12 +50,20 @@ func main() {
 func generateUsersWorker(usersIdChan <-chan int, outputChan chan<- User) {
 	for id := range usersIdChan {
 		time.Sleep(time.Millisecond * 100)
+		logsCount := rand.Intn(1000)
 		user := User{
 			id:    id,
 			email: fmt.Sprintf("user%d@company.com", id),
-			logs:  generateLogs(rand.Intn(1000)),
+			logs:  make([]logItem, logsCount),
 		}
-
+		logsChan := make(chan int, logsCount)
+		for i := 0; i < logsCount; i++ {
+			logsChan <- i
+		}
+		var wg sync.WaitGroup
+		wg.Add(logsCount)
+		go generateLogs(logsChan, user, &wg)
+		wg.Wait()
 		fmt.Printf("user %d was generated, saving user info in file\n", user.id)
 		outputChan <- user
 	}
@@ -90,15 +98,12 @@ func generateUsers(count int) chan User {
 	return outputChan
 }
 
-func generateLogs(count int) []logItem {
-	logs := make([]logItem, count)
-
-	for i := 0; i < count; i++ {
-		logs[i] = logItem{
+func generateLogs(inputChan chan int, user User, wg *sync.WaitGroup) {
+	for i := range inputChan {
+		user.logs[i] = logItem{
 			action:    actions[rand.Intn(len(actions)-1)],
 			timestamp: time.Now(),
 		}
+		wg.Done()
 	}
-
-	return logs
 }
