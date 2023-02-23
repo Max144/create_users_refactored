@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -34,10 +35,14 @@ func (u User) getActivityInfo() string {
 func main() {
 	rand.Seed(time.Now().Unix())
 	startTime := time.Now()
-
-	users := generateUsers(1000)
-
-	saveUsersInfo(users)
+	var wg sync.WaitGroup
+	usersCount := 100
+	usersChan := generateUsers(usersCount)
+	wg.Add(usersCount)
+	for i := 0; i < workersCount; i++ {
+		go saveUserInfo(usersChan, &wg)
+	}
+	wg.Wait()
 
 	fmt.Printf("DONE! Time Elapsed: %.2f seconds\n", time.Since(startTime).Seconds())
 }
@@ -45,31 +50,19 @@ func main() {
 func generateUsersWorker(usersIdChan <-chan int, outputChan chan<- User) {
 	for id := range usersIdChan {
 		time.Sleep(time.Millisecond * 100)
-		outputChan <- User{
+		user := User{
 			id:    id,
 			email: fmt.Sprintf("user%d@company.com", id),
 			logs:  generateLogs(rand.Intn(1000)),
 		}
+
+		fmt.Printf("user %d was generated, saving user info in file\n", user.id)
+		outputChan <- user
 	}
+	close(outputChan)
 }
 
-func saveUsersInfo(users []User) {
-	inputChan, outputChan := make(chan User, len(users)), make(chan User, len(users))
-	for _, user := range users {
-		inputChan <- user
-	}
-	close(inputChan)
-	for i := 0; i < workersCount; i++ {
-		go saveUserInfo(inputChan, outputChan)
-	}
-
-	for i := 0; i < len(users); i++ {
-		user := <-outputChan
-		fmt.Printf("WRITING FILE FOR UID %d\n", user.id)
-	}
-}
-
-func saveUserInfo(inputChan <-chan User, outputChan chan<- User) {
+func saveUserInfo(inputChan <-chan User, wg *sync.WaitGroup) {
 	for user := range inputChan {
 		time.Sleep(time.Second)
 
@@ -80,12 +73,12 @@ func saveUserInfo(inputChan <-chan User, outputChan chan<- User) {
 		}
 
 		file.WriteString(user.getActivityInfo())
-		outputChan <- user
+		fmt.Printf("user %d data was written in file\n", user.id)
+		wg.Done()
 	}
 }
 
-func generateUsers(count int) []User {
-	users := make([]User, count)
+func generateUsers(count int) chan User {
 	usersIdChan, outputChan := make(chan int, count), make(chan User, count)
 	for i := 0; i < count; i++ {
 		usersIdChan <- i + 1
@@ -93,13 +86,8 @@ func generateUsers(count int) []User {
 	for i := 0; i < workersCount; i++ {
 		go generateUsersWorker(usersIdChan, outputChan)
 	}
-	close(usersIdChan)
-	for i := 0; i < count; i++ {
-		users[i] = <-outputChan
-		fmt.Printf("generated user %d\n", users[i].id)
-	}
 
-	return users
+	return outputChan
 }
 
 func generateLogs(count int) []logItem {
